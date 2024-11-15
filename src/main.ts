@@ -12,13 +12,14 @@ const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
 const CACHE_SPAWN_PROBABILITY = 0.1;
 
+// Coin object type
 interface Coin {
   originI: number;
   originJ: number;
   serial: number;
 }
 
-// Calculate global coordinates anchored at Null Island (0°N, 0°E)
+// Calculate global coordinates anchored at Null Island (0N, 0E)
 function toGlobalCoords(lat: number, lng: number) {
   return {
     i: Math.floor(lat / TILE_DEGREES),
@@ -53,10 +54,59 @@ let playerCoins: Coin[] = [];
 const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 statusPanel.innerHTML = `Points: ${playerPoints}, Coins: ${playerCoins.length}`;
 
-// Update status
+// Update status and UI
 function updateStatus() {
   statusPanel.innerHTML =
     `Points: ${playerPoints}, Coins: ${playerCoins.length}`;
+}
+// Handle coin collection and deposit actions
+function handleCollectCoins(cell: { coins: Coin[]; pointValue: number }) {
+  if (cell.coins.length > 0) {
+    playerCoins.push(...cell.coins); // Move all coins to player
+    playerPoints += cell.pointValue;
+    cell.coins = []; // Clear coins in cache
+    cell.pointValue = 0; // Reset point value
+    updateStatus();
+  }
+}
+
+function handleDepositCoins(cell: { coins: Coin[] }) {
+  if (playerCoins.length > 0) {
+    cell.coins.push(...playerCoins); // Move all player coins to cache
+    playerCoins = []; // Clear player coins
+    updateStatus();
+  }
+}
+
+// Create cache popup content
+function createCachePopup(
+  i: number,
+  j: number,
+  cell: { coins: Coin[]; pointValue: number },
+) {
+  const popupDiv = document.createElement("div");
+
+  popupDiv.innerHTML = `
+    <div>Cache at "${i}:${j}" - Points: <span id="value">${cell.pointValue}</span>, Coins: <span id="coins">${cell.coins.length}</span></div>
+    <ul id="coinList">${
+    cell.coins.map((coin) =>
+      `<li>Coin: ${coin.originI}:${coin.originJ}#${coin.serial}</li>`
+    ).join("")
+  }</ul>
+    <button id="collect">Collect Coins</button>
+    <button id="deposit">Deposit Coins</button>
+  `;
+
+  popupDiv.querySelector<HTMLButtonElement>("#collect")!.addEventListener(
+    "click",
+    () => handleCollectCoins(cell),
+  );
+  popupDiv.querySelector<HTMLButtonElement>("#deposit")!.addEventListener(
+    "click",
+    () => handleDepositCoins(cell),
+  );
+
+  return popupDiv;
 }
 
 // Spawn cache with unique coin identities
@@ -91,69 +141,27 @@ function spawnCache(latOffset: number, lngOffset: number) {
   const rect = leaflet.rectangle(bounds);
   rect.addTo(map);
 
-  rect.bindPopup(() => {
-    const popupDiv = document.createElement("div");
-
-    // Function to refresh the popup content dynamically
-    function updatePopupContent() {
-      popupDiv.innerHTML = `
-        <div>Cache at "${i}:${j}" - Points: <span id="value">${cell.pointValue}</span>, Coins: <span id="coins">${cell.coins.length}</span></div>
-        <ul id="coinList">${
-        cell.coins
-          .map((coin) =>
-            `<li>Coin: ${coin.originI}:${coin.originJ}#${coin.serial}</li>`
-          )
-          .join("")
-      }</ul>
-        <button id="collect">Collect Coins</button>
-        <button id="deposit">Deposit Coins</button>
-      `;
-
-      popupDiv.querySelector<HTMLButtonElement>("#collect")!.addEventListener(
-        "click",
-        () => {
-          if (cell.coins.length > 0) {
-            playerCoins.push(...cell.coins); // Move all coins to player
-            playerPoints += cell.pointValue;
-            cell.coins = []; // Clear coins in cache
-            cell.pointValue = 0; // Reset point value
-            updateStatus();
-            updatePopupContent(); // Refresh popup to show updated values
-          }
-        },
-      );
-
-      popupDiv.querySelector<HTMLButtonElement>("#deposit")!.addEventListener(
-        "click",
-        () => {
-          if (playerCoins.length > 0) {
-            cell.coins.push(...playerCoins); // Move all player coins to cache
-            playerCoins = []; // Clear player coins
-            updateStatus();
-            updatePopupContent(); // Refresh popup to show updated values
-          }
-        },
-      );
-    }
-
-    updatePopupContent(); // Initialize popup content
-    return popupDiv;
-  });
+  rect.bindPopup(() => createCachePopup(i, j, cell));
 }
 
 // Spawn caches in the player's neighborhood
-for (
-  let latOffset = -NEIGHBORHOOD_SIZE;
-  latOffset < NEIGHBORHOOD_SIZE;
-  latOffset++
-) {
+function spawnNeighborhoodCaches() {
   for (
-    let lngOffset = -NEIGHBORHOOD_SIZE;
-    lngOffset < NEIGHBORHOOD_SIZE;
-    lngOffset++
+    let latOffset = -NEIGHBORHOOD_SIZE;
+    latOffset < NEIGHBORHOOD_SIZE;
+    latOffset++
   ) {
-    if (luck([latOffset, lngOffset].toString()) < CACHE_SPAWN_PROBABILITY) {
-      spawnCache(latOffset, lngOffset);
+    for (
+      let lngOffset = -NEIGHBORHOOD_SIZE;
+      lngOffset < NEIGHBORHOOD_SIZE;
+      lngOffset++
+    ) {
+      if (luck([latOffset, lngOffset].toString()) < CACHE_SPAWN_PROBABILITY) {
+        spawnCache(latOffset, lngOffset);
+      }
     }
   }
 }
+
+// Initialize neighborhood caches
+spawnNeighborhoodCaches();
