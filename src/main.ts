@@ -12,7 +12,24 @@ const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
 const CACHE_SPAWN_PROBABILITY = 0.1;
 
-// Player's initial location and setup
+interface Coin {
+  originI: number;
+  originJ: number;
+  serial: number;
+}
+
+// Calculate global coordinates anchored at Null Island (0°N, 0°E)
+function toGlobalCoords(lat: number, lng: number) {
+  return {
+    i: Math.floor(lat / TILE_DEGREES),
+    j: Math.floor(lng / TILE_DEGREES),
+  };
+}
+
+// Flyweight pattern: cache objects keyed by their global coordinates
+const cacheCells = new Map<string, { coins: Coin[]; pointValue: number }>();
+
+// Player setup
 const map = leaflet.map(document.getElementById("map")!, {
   center: OAKES_CLASSROOM,
   zoom: GAMEPLAY_ZOOM_LEVEL,
@@ -28,85 +45,115 @@ leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
 
-// Player's marker
 const playerMarker = leaflet.marker(OAKES_CLASSROOM).bindTooltip("That's you!");
 playerMarker.addTo(map);
 
-// Player status and coins
 let playerPoints = 0;
-let playerCoins = 0;
+let playerCoins: Coin[] = [];
 const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
-statusPanel.innerHTML = `Points: ${playerPoints}, Coins: ${playerCoins}`;
+statusPanel.innerHTML = `Points: ${playerPoints}, Coins: ${playerCoins.length}`;
 
-// Spawn cache function with collect/deposit functionality
-function spawnCache(i: number, j: number) {
+// Update status
+function updateStatus() {
+  statusPanel.innerHTML =
+    `Points: ${playerPoints}, Coins: ${playerCoins.length}`;
+}
+
+// Spawn cache with unique coin identities
+function spawnCache(latOffset: number, lngOffset: number) {
   const origin = OAKES_CLASSROOM;
+  const cellLat = origin.lat + latOffset * TILE_DEGREES;
+  const cellLng = origin.lng + lngOffset * TILE_DEGREES;
+  const { i, j } = toGlobalCoords(cellLat, cellLng);
+  const cellKey = `${i}:${j}`;
+
+  if (!cacheCells.has(cellKey)) {
+    const cacheCoins = Math.floor(luck([i, j, "coins"].toString()) * 10 + 1);
+    const pointValue = Math.floor(
+      luck([i, j, "initialValue"].toString()) * 10 + 1,
+    );
+
+    // Assign each coin a unique ID within its origin cache
+    const coins = Array.from({ length: cacheCoins }, (_, index) => ({
+      originI: i,
+      originJ: j,
+      serial: index,
+    }));
+    cacheCells.set(cellKey, { coins, pointValue });
+  }
+
+  const cell = cacheCells.get(cellKey)!;
   const bounds = leaflet.latLngBounds([
-    [origin.lat + i * TILE_DEGREES, origin.lng + j * TILE_DEGREES],
-    [origin.lat + (i + 1) * TILE_DEGREES, origin.lng + (j + 1) * TILE_DEGREES],
+    [cellLat, cellLng],
+    [cellLat + TILE_DEGREES, cellLng + TILE_DEGREES],
   ]);
 
   const rect = leaflet.rectangle(bounds);
   rect.addTo(map);
 
-  // Deterministic number of coins
-  let cacheCoins = Math.floor(luck([i, j, "coins"].toString()) * 10 + 1);
-  let pointValue = Math.floor(luck([i, j, "initialValue"].toString()) * 10 + 1);
-
   rect.bindPopup(() => {
     const popupDiv = document.createElement("div");
-    popupDiv.innerHTML = `
-        <div>Cache at "${i},${j}" - Points: <span id="value">${pointValue}</span>, Coins: <span id="coins">${cacheCoins}</span></div>
+
+    // Function to refresh the popup content dynamically
+    function updatePopupContent() {
+      popupDiv.innerHTML = `
+        <div>Cache at "${i}:${j}" - Points: <span id="value">${cell.pointValue}</span>, Coins: <span id="coins">${cell.coins.length}</span></div>
+        <ul id="coinList">${
+        cell.coins
+          .map((coin) =>
+            `<li>Coin: ${coin.originI}:${coin.originJ}#${coin.serial}</li>`
+          )
+          .join("")
+      }</ul>
         <button id="collect">Collect Coins</button>
         <button id="deposit">Deposit Coins</button>
       `;
 
-    popupDiv.querySelector<HTMLButtonElement>("#collect")!.addEventListener(
-      "click",
-      () => {
-        // Collect coins if available
-        if (cacheCoins > 0) {
-          playerCoins += cacheCoins;
-          playerPoints += pointValue;
-          pointValue = 0;
-          cacheCoins = 0;
-          popupDiv.querySelector<HTMLSpanElement>("#coins")!.innerHTML =
-            cacheCoins.toString();
-          popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML =
-            pointValue.toString();
-          updateStatus();
-        }
-      },
-    );
+      popupDiv.querySelector<HTMLButtonElement>("#collect")!.addEventListener(
+        "click",
+        () => {
+          if (cell.coins.length > 0) {
+            playerCoins.push(...cell.coins); // Move all coins to player
+            playerPoints += cell.pointValue;
+            cell.coins = []; // Clear coins in cache
+            cell.pointValue = 0; // Reset point value
+            updateStatus();
+            updatePopupContent(); // Refresh popup to show updated values
+          }
+        },
+      );
 
-    popupDiv.querySelector<HTMLButtonElement>("#deposit")!.addEventListener(
-      "click",
-      () => {
-        // Deposit coins if the player has any
-        if (playerCoins > 0) {
-          cacheCoins += playerCoins;
-          playerCoins = 0;
-          popupDiv.querySelector<HTMLSpanElement>("#coins")!.innerHTML =
-            cacheCoins.toString();
-          updateStatus();
-        }
-      },
-    );
+      popupDiv.querySelector<HTMLButtonElement>("#deposit")!.addEventListener(
+        "click",
+        () => {
+          if (playerCoins.length > 0) {
+            cell.coins.push(...playerCoins); // Move all player coins to cache
+            playerCoins = []; // Clear player coins
+            updateStatus();
+            updatePopupContent(); // Refresh popup to show updated values
+          }
+        },
+      );
+    }
 
+    updatePopupContent(); // Initialize popup content
     return popupDiv;
   });
 }
 
-// Update status panel
-function updateStatus() {
-  statusPanel.innerHTML = `Points: ${playerPoints}, Coins: ${playerCoins}`;
-}
-
-// Spawn caches around the player
-for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
-  for (let j = -NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
-    if (luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY) {
-      spawnCache(i, j);
+// Spawn caches in the player's neighborhood
+for (
+  let latOffset = -NEIGHBORHOOD_SIZE;
+  latOffset < NEIGHBORHOOD_SIZE;
+  latOffset++
+) {
+  for (
+    let lngOffset = -NEIGHBORHOOD_SIZE;
+    lngOffset < NEIGHBORHOOD_SIZE;
+    lngOffset++
+  ) {
+    if (luck([latOffset, lngOffset].toString()) < CACHE_SPAWN_PROBABILITY) {
+      spawnCache(latOffset, lngOffset);
     }
   }
 }
