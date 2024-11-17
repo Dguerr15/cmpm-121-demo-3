@@ -12,7 +12,7 @@ const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
 const CACHE_SPAWN_PROBABILITY = 0.1;
 
-// Coin object type
+// Coin interface
 interface Coin {
   originI: number;
   originJ: number;
@@ -145,7 +145,7 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
     }
   }
 
-  // Attach event listeners dynamically
+  // Attach event listeners
   popupDiv.addEventListener("click", (event) => {
     const targetId = (event.target as HTMLElement).id;
     if (targetId === `collect-${cellKey}`) handleCollectCoins();
