@@ -27,26 +27,37 @@ interface Cache {
 
 // Memento pattern, save/restore cache state
 interface cacheMemento {
-  saveState(
-    cacheCells: Map<string, Cache>,
-  ): void;
+  saveState(cacheCells: Map<string, Cache>): void;
   restoreState(): Map<string, Cache>;
 }
 
 function createCacheMemento(): cacheMemento {
-  let cacheState = new Map<string, Cache>();
+  let savedState = new Map<string, Cache>();
   return {
     saveState(cacheCells) {
-      cacheState = new Map(cacheCells);
+      savedState = new Map(cacheCells);
     },
     restoreState() {
-      return cacheState;
+      return new Map(savedState);
     },
   };
 }
 
-//initialize memento
+// Create a memento instance
 const cacheMemento = createCacheMemento();
+
+function saveCacheState() {
+  cacheMemento.saveState(cacheCells);
+}
+
+function restoreCacheState() {
+  const restoredState = cacheMemento.restoreState();
+  for (const [key, restoredCache] of restoredState.entries()) {
+    if (!cacheCells.has(key)) {
+      cacheCells.set(key, restoredCache);
+    }
+  }
+}
 
 // Map setup
 const map = leaflet.map(document.getElementById("map")!, {
@@ -75,7 +86,7 @@ const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 updateStatus();
 
 // Cache and Flyweight pattern
-let cacheCells = new Map<string, Cache>();
+const cacheCells = new Map<string, Cache>();
 
 // Calculate global coordinates anchored at Null Island (0N, 0E)
 function toGlobalCoords(lat: number, lng: number) {
@@ -118,8 +129,9 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
       playerPoints += cell.pointValue;
       cell.coins = []; // Clear coins in cache
       cell.pointValue = 0; // Reset point value
-      updateStatus();
       updatePopupContent();
+      updateStatus();
+      saveCacheState();
     }
   }
 
@@ -127,8 +139,9 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
     if (playerCoins.length > 0) {
       cell.coins.push(...playerCoins); // Move all player coins to cache
       playerCoins = []; // Clear player coins
-      updateStatus();
       updatePopupContent();
+      updateStatus();
+      saveCacheState();
     }
   }
 
@@ -143,30 +156,32 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
   return popupDiv;
 }
 
-// Spawn cache with unique coin identities
-function spawnCache(latOffset: number, lngOffset: number) {
-  const origin = OAKES_CLASSROOM;
-  const cellLat = origin.lat + latOffset * TILE_DEGREES;
-  const cellLng = origin.lng + lngOffset * TILE_DEGREES;
-  const { i, j } = toGlobalCoords(cellLat, cellLng);
-  const cellKey = `${i}:${j}`;
+function spawnCache(globalI: number, globalJ: number) {
+  const cellKey = `${globalI}:${globalJ}`;
 
   if (!cacheCells.has(cellKey)) {
-    const cacheCoins = Math.floor(luck([i, j, "coins"].toString()) * 10 + 1);
+    // Generate new cache data
+    const cacheCoins = Math.floor(
+      luck([globalI, globalJ, "coins"].toString()) * 10 + 1,
+    );
     const pointValue = Math.floor(
-      luck([i, j, "initialValue"].toString()) * 10 + 1,
+      luck([globalI, globalJ, "initialValue"].toString()) * 10 + 1,
     );
 
-    // Assign each coin a unique ID within its origin cache
     const coins = Array.from({ length: cacheCoins }, (_, index) => ({
-      originI: i,
-      originJ: j,
+      originI: globalI,
+      originJ: globalJ,
       serial: index,
     }));
     cacheCells.set(cellKey, { coins, pointValue });
   }
 
+  // Cache exists; fetch it
   const cell = cacheCells.get(cellKey)!;
+
+  // Convert global coordinates back to latitude/longitude
+  const cellLat = globalI * TILE_DEGREES;
+  const cellLng = globalJ * TILE_DEGREES;
   const bounds = leaflet.latLngBounds([
     [cellLat, cellLng],
     [cellLat + TILE_DEGREES, cellLng + TILE_DEGREES],
@@ -174,8 +189,7 @@ function spawnCache(latOffset: number, lngOffset: number) {
 
   const rect = leaflet.rectangle(bounds);
   rect.addTo(map);
-
-  rect.bindPopup(() => createCachePopup(cell, `${i}:${j}`));
+  rect.bindPopup(() => createCachePopup(cell, cellKey));
 }
 
 // Movement and cache managment
@@ -191,20 +205,20 @@ function movePlayer(direction: string) {
 }
 
 function regenerateCaches() {
-  const savedCacheState = cacheMemento.restoreState();
-  cacheCells = savedCacheState;
-
-  // Clear existing rectangles
-  map.eachLayer((layer: leaflet.Layer) => {
-    if (layer instanceof leaflet.Rectangle) map.removeLayer(layer);
-  });
-
-  // Re-add existing caches and spawn new ones
   const { i: centerI, j: centerJ } = toGlobalCoords(
     playerLocation.lat,
     playerLocation.lng,
   );
 
+  // Restore cache state
+  restoreCacheState();
+
+  // Remove all visible rectangles but keep the data
+  map.eachLayer((layer: leaflet.Layer) => {
+    if (layer instanceof leaflet.Rectangle) map.removeLayer(layer);
+  });
+
+  // Generate caches around the player's current position, based on the original seed (globalI, globalJ)
   for (
     let latOffset = -NEIGHBORHOOD_SIZE;
     latOffset <= NEIGHBORHOOD_SIZE;
@@ -215,20 +229,27 @@ function regenerateCaches() {
       lngOffset <= NEIGHBORHOOD_SIZE;
       lngOffset++
     ) {
-      const cellKey = `${centerI + latOffset}:${centerJ + lngOffset}`;
+      const globalI = centerI + latOffset;
+      const globalJ = centerJ + lngOffset;
+      const cellKey = `${globalI}:${globalJ}`;
 
+      // Only create or display the cache if it hasn't been generated yet for this position
       if (!cacheCells.has(cellKey)) {
-        if (luck([latOffset, lngOffset].toString()) < CACHE_SPAWN_PROBABILITY) {
-          spawnCache(latOffset, lngOffset);
+        // Spawn the cache only once based on the seed
+        if (
+          luck([globalI, globalJ, "seed"].toString()) < CACHE_SPAWN_PROBABILITY
+        ) {
+          spawnCache(globalI, globalJ);
         }
       } else {
-        // Add existing cache's visual representation
-        spawnCache(latOffset, lngOffset);
+        // Add the existing cache's visual representation if it already exists
+        spawnCache(globalI, globalJ);
       }
     }
   }
 
-  cacheMemento.saveState(cacheCells);
+  // Save cache state
+  saveCacheState();
 }
 
 // Movement Controls
