@@ -82,8 +82,14 @@ playerMarker.addTo(map);
 const playerLocation = { lat: OAKES_CLASSROOM.lat, lng: OAKES_CLASSROOM.lng };
 let playerPoints = 0;
 let playerCoins: Coin[] = [];
+const movementHistory: leaflet.LatLng[] = [OAKES_CLASSROOM];
 const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 updateStatus();
+
+// Polyline for movement history
+const movementPolyline = leaflet.polyline(movementHistory, {
+  color: "blue",
+}).addTo(map);
 
 // Cache and Flyweight pattern
 const cacheCells = new Map<string, Cache>();
@@ -201,6 +207,10 @@ function movePlayer(direction: string) {
   if (direction === "right") playerLocation.lng += delta;
 
   playerMarker.setLatLng(playerLocation);
+
+  movementHistory.push(leaflet.latLng(playerLocation));
+  movementPolyline.setLatLngs(movementHistory);
+
   regenerateCaches();
 }
 
@@ -272,3 +282,38 @@ document.getElementById("moveRight")?.addEventListener(
 
 // Initial Cache Spawn
 regenerateCaches();
+
+// Button interaction for alert example
+document.getElementById("exampleButton")?.addEventListener("click", () => {
+  alert("You clicked me!");
+});
+
+// Flyweight example for reusing objects
+console.log("Flyweight caches active:");
+console.log(cacheCells);
+
+// Debug: Log current state when a key is pressed
+document.addEventListener("keydown", (event) => {
+  if (event.key === "s") {
+    console.log("Saving cache state...");
+    saveCacheState();
+  } else if (event.key === "r") {
+    console.log("Restoring cache state...");
+    restoreCacheState();
+    regenerateCaches();
+  } else if (event.key === "p") {
+    console.log("Player Info:", {
+      location: playerLocation,
+      points: playerPoints,
+      coins: playerCoins,
+    });
+  }
+});
+
+// Map interaction example for debugging
+map.on("click", (event: leaflet.MouseEvent) => {
+  const { lat, lng } = event.latlng;
+  const { i, j } = toGlobalCoords(lat, lng);
+  const cellKey = `${i}:${j}`;
+  console.log(`Map clicked at ${cellKey}`);
+});
