@@ -154,34 +154,10 @@ resetButton.addEventListener("click", () => {
     "Yes",
   );
   if (confirmReset && confirmReset.toLowerCase() === "yes") {
-    resetGameState();
+    localStorage.removeItem("gameState");
+    location.reload();
   }
 });
-
-function resetGameState() {
-  // Reset all game variables to their initial state
-  if (autoUpdatePosition!) {
-    geoButton.textContent = "Start Geolocation";
-    stopGeoTracking();
-  }
-
-  playerLocation = { lat: OAKES_CLASSROOM.lat, lng: OAKES_CLASSROOM.lng };
-  playerPoints = 0;
-  playerCoins = [];
-  movementHistory = [OAKES_CLASSROOM];
-  cacheCells.clear();
-  localStorage.removeItem("gameState");
-
-  // Reset the map, remove path and caches
-  playerMarker.setLatLng(playerLocation);
-  if (pathPolyline) pathPolyline.setLatLngs([]);
-
-  regenerateCaches();
-  updateStatus();
-
-  // Center map on the new location
-  map.setView(playerLocation, GAMEPLAY_ZOOM_LEVEL);
-}
 
 // Cache and Flyweight pattern
 let cacheCells = new Map<string, Cache>();
@@ -239,7 +215,7 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
       cell.pointValue = 0; // Reset point value
       updatePopupContent();
       updateStatus();
-      saveCacheState();
+      saveGameState();
     }
   }
 
@@ -249,7 +225,7 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
       playerCoins = []; // Clear player coins
       updatePopupContent();
       updateStatus();
-      saveCacheState();
+      saveGameState();
     }
   }
 
@@ -311,6 +287,7 @@ function movePlayer(latOffset: number, lngOffset: number) {
   // Stop geolocation tracking if active
   if (autoUpdatePosition!) {
     geoButton.textContent = "Start Geolocation";
+    autoUpdatePosition = false;
     stopGeoTracking();
   }
 
@@ -389,29 +366,51 @@ function saveGameState() {
     playerPoints: playerPoints,
     playerCoins: playerCoins,
     movementHistory: movementHistory,
-    cacheCells: Array.from(cacheCells.entries()), // Convert map to array
+    cacheCells: Array.from(cacheCells.entries()).map(([key, value]) => [
+      key,
+      {
+        ...value,
+        coins: value.coins.map((coin) => ({ ...coin })), // Create a deep copy of the coins array
+      },
+    ]),
   };
 
   // Call saveCacheState to ensure cache state is saved
   saveCacheState();
 
   localStorage.setItem("gameState", JSON.stringify(gameState));
+  console.log("Game state saved:", gameState);
 }
 
 // Load game state from localStorage
 function loadGameState() {
-  const gameState = JSON.parse(localStorage.getItem("gameState") || "{}");
-  if (gameState.playerLocation) {
+  const savedState = localStorage.getItem("gameState");
+  if (savedState) {
+    const gameState = JSON.parse(savedState);
+
     playerLocation = gameState.playerLocation;
     playerPoints = gameState.playerPoints;
     playerCoins = gameState.playerCoins;
     movementHistory = gameState.movementHistory;
     cacheCells = new Map(gameState.cacheCells);
 
+    /*// Load cacheCells and ensure coins are deep copied if necessary
+    cacheCells = new Map(
+      gameState.cacheCells.map(([key, value]: [string, any]) => [
+        key,
+        {
+          ...value,
+          coins: value.coins ? value.coins.map((coin: any) => ({ ...coin })) : []
+        }
+      ])
+    );
+    */
+
     // Update player marker and other UI
     playerMarker.setLatLng(playerLocation);
     updateStatus();
     updatePlayerPath();
+    regenerateCaches();
   }
 }
 
@@ -432,10 +431,6 @@ document.getElementById("moveRight")?.addEventListener(
   "click",
   () => movePlayer(0, TILE_DEGREES),
 );
-
-// Initial Cache Spawn
-regenerateCaches();
-loadGameState();
 
 // Button interaction for alert example
 document.getElementById("exampleButton")?.addEventListener("click", () => {
@@ -471,3 +466,17 @@ map.on("click", (event: leaflet.MouseEvent) => {
   const cellKey = `${i}:${j}`;
   console.log(`Map clicked at ${cellKey}`);
 });
+
+// Ensruing correct build on initiliazation
+globalThis.onload = () => {
+  initiliazeMap();
+};
+
+function initiliazeMap() {
+  const savedState = localStorage.getItem("gameState");
+  if (savedState) {
+    loadGameState();
+  } else {
+    regenerateCaches();
+  }
+}
