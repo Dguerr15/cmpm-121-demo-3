@@ -52,6 +52,7 @@ function saveCacheState() {
 
 function restoreCacheState() {
   const restoredState = cacheMemento.restoreState();
+  cacheCells.clear();
   for (const [key, restoredCache] of restoredState.entries()) {
     if (!cacheCells.has(key)) {
       cacheCells.set(key, restoredCache);
@@ -79,20 +80,111 @@ leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 const playerMarker = leaflet.marker(OAKES_CLASSROOM).bindTooltip("That's you!");
 playerMarker.addTo(map);
 
-const playerLocation = { lat: OAKES_CLASSROOM.lat, lng: OAKES_CLASSROOM.lng };
+let playerLocation = { lat: OAKES_CLASSROOM.lat, lng: OAKES_CLASSROOM.lng };
 let playerPoints = 0;
 let playerCoins: Coin[] = [];
-const movementHistory: leaflet.LatLng[] = [OAKES_CLASSROOM];
+let autoUpdatePosition = false;
+let geoWatchId: number | null = null;
+let movementHistory: leaflet.LatLng[] = [OAKES_CLASSROOM];
+
 const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 updateStatus();
 
 // Polyline for movement history
-const movementPolyline = leaflet.polyline(movementHistory, {
-  color: "blue",
-}).addTo(map);
+let pathPolyline: leaflet.Polyline;
+function updatePlayerPath() {
+  if (pathPolyline) {
+    pathPolyline.setLatLngs(movementHistory);
+  } else {
+    pathPolyline = leaflet.polyline(movementHistory, { color: "blue" }).addTo(
+      map,
+    );
+  }
+}
+
+// Geolocation button
+const geoButton = document.getElementById("geoButton")!;
+geoButton.addEventListener("click", () => {
+  autoUpdatePosition = !autoUpdatePosition;
+  if (autoUpdatePosition) {
+    geoButton.textContent = "Stop Geolocation";
+    startGeoTracking();
+  } else {
+    geoButton.textContent = "Start Geolocation";
+    stopGeoTracking();
+  }
+});
+
+function startGeoTracking() {
+  if (navigator.geolocation) {
+    geoWatchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        playerLocation.lat = latitude;
+        playerLocation.lng = longitude;
+        playerMarker.setLatLng(playerLocation);
+        const newPosition = leaflet.latLng(latitude, longitude);
+        movementHistory.push(newPosition);
+
+        updateStatus();
+        updatePlayerPath();
+        regenerateCaches();
+
+        // Center map on the new location
+        map.setView(playerLocation, GAMEPLAY_ZOOM_LEVEL);
+      },
+      (error) => console.error(error),
+      { enableHighAccuracy: true },
+    );
+  }
+}
+
+function stopGeoTracking() {
+  if (geoWatchId !== null) {
+    navigator.geolocation.clearWatch(geoWatchId);
+    geoWatchId = null; // Reset the watch ID when stopping
+  }
+}
+
+// Reset button
+const resetButton = document.getElementById("resetButton")!;
+resetButton.addEventListener("click", () => {
+  const confirmReset = prompt(
+    "Are you sure you want to reset the game state? This will erase all coins and location history.",
+    "Yes",
+  );
+  if (confirmReset && confirmReset.toLowerCase() === "yes") {
+    resetGameState();
+  }
+});
+
+function resetGameState() {
+  // Reset all game variables to their initial state
+  if (autoUpdatePosition!) {
+    geoButton.textContent = "Start Geolocation";
+    stopGeoTracking();
+  }
+
+  playerLocation = { lat: OAKES_CLASSROOM.lat, lng: OAKES_CLASSROOM.lng };
+  playerPoints = 0;
+  playerCoins = [];
+  movementHistory = [OAKES_CLASSROOM];
+  cacheCells.clear();
+  localStorage.removeItem("gameState");
+
+  // Reset the map, remove path and caches
+  playerMarker.setLatLng(playerLocation);
+  if (pathPolyline) pathPolyline.setLatLngs([]);
+
+  regenerateCaches();
+  updateStatus();
+
+  // Center map on the new location
+  map.setView(playerLocation, GAMEPLAY_ZOOM_LEVEL);
+}
 
 // Cache and Flyweight pattern
-const cacheCells = new Map<string, Cache>();
+let cacheCells = new Map<string, Cache>();
 
 // Calculate global coordinates anchored at Null Island (0N, 0E)
 function toGlobalCoords(lat: number, lng: number) {
@@ -118,8 +210,9 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
       <div>Points: <span>${cell.pointValue}</span>, Coins: <span>${cell.coins.length}</span></div>
       <ul>${
       cell.coins
-        .map((coin) =>
-          `<li>Coin: ${coin.originI}:${coin.originJ}#${coin.serial}</li>`
+        .map(
+          (coin) =>
+            `<li><span class="coin" data-coordinates="${cellKey}">${coin.originI}:${coin.originJ}#${coin.serial}</span></li>`,
         )
         .join("")
     }</ul>
@@ -127,6 +220,15 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
       <button id="deposit-${cellKey}">Deposit Coins</button>
     `;
   }
+
+  // Event listener for clicking a coin
+  popupDiv.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    if (target.classList.contains("coin")) {
+      const [i, j] = target.dataset.coordinates!.split(":").map(Number);
+      centerOnCache(i, j);
+    }
+  });
 
   // Handle coin collection and deposit actions
   function handleCollectCoins() {
@@ -160,6 +262,12 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
 
   updatePopupContent();
   return popupDiv;
+}
+
+function centerOnCache(i: number, j: number) {
+  const lat = i * TILE_DEGREES;
+  const lng = j * TILE_DEGREES;
+  map.setView(leaflet.latLng(lat, lng), GAMEPLAY_ZOOM_LEVEL);
 }
 
 function spawnCache(globalI: number, globalJ: number) {
@@ -199,18 +307,26 @@ function spawnCache(globalI: number, globalJ: number) {
 }
 
 // Movement and cache managment
-function movePlayer(direction: string) {
-  const delta = TILE_DEGREES;
-  if (direction === "up") playerLocation.lat += delta;
-  if (direction === "down") playerLocation.lat -= delta;
-  if (direction === "left") playerLocation.lng -= delta;
-  if (direction === "right") playerLocation.lng += delta;
+function movePlayer(latOffset: number, lngOffset: number) {
+  // Stop geolocation tracking if active
+  if (autoUpdatePosition!) {
+    geoButton.textContent = "Start Geolocation";
+    stopGeoTracking();
+  }
 
+  // Update player location
+  const newLat = playerLocation.lat + latOffset;
+  const newLng = playerLocation.lng + lngOffset;
+
+  playerLocation = { lat: newLat, lng: newLng };
+  movementHistory.push(leaflet.latLng(newLat, newLng));
+
+  // Update the player marker and path
   playerMarker.setLatLng(playerLocation);
+  updatePlayerPath();
 
-  movementHistory.push(leaflet.latLng(playerLocation));
-  movementPolyline.setLatLngs(movementHistory);
-
+  // Center map on the new location
+  map.setView(playerLocation, GAMEPLAY_ZOOM_LEVEL);
   regenerateCaches();
 }
 
@@ -221,11 +337,15 @@ function regenerateCaches() {
   );
 
   // Restore cache state
+  console.log("Cache state before restore:", cacheCells);
   restoreCacheState();
+  console.log("Cache state after restore:", cacheCells);
 
   // Remove all visible rectangles but keep the data
   map.eachLayer((layer: leaflet.Layer) => {
-    if (layer instanceof leaflet.Rectangle) map.removeLayer(layer);
+    if (layer instanceof leaflet.Rectangle) {
+      map.removeLayer(layer);
+    }
   });
 
   // Generate caches around the player's current position, based on the original seed (globalI, globalJ)
@@ -262,26 +382,60 @@ function regenerateCaches() {
   saveCacheState();
 }
 
+// Save game state locally
+function saveGameState() {
+  const gameState = {
+    playerLocation: playerLocation,
+    playerPoints: playerPoints,
+    playerCoins: playerCoins,
+    movementHistory: movementHistory,
+    cacheCells: Array.from(cacheCells.entries()), // Convert map to array
+  };
+
+  // Call saveCacheState to ensure cache state is saved
+  saveCacheState();
+
+  localStorage.setItem("gameState", JSON.stringify(gameState));
+}
+
+// Load game state from localStorage
+function loadGameState() {
+  const gameState = JSON.parse(localStorage.getItem("gameState") || "{}");
+  if (gameState.playerLocation) {
+    playerLocation = gameState.playerLocation;
+    playerPoints = gameState.playerPoints;
+    playerCoins = gameState.playerCoins;
+    movementHistory = gameState.movementHistory;
+    cacheCells = new Map(gameState.cacheCells);
+
+    // Update player marker and other UI
+    playerMarker.setLatLng(playerLocation);
+    updateStatus();
+    updatePlayerPath();
+  }
+}
+
 // Movement Controls
 document.getElementById("moveUp")?.addEventListener(
   "click",
-  () => movePlayer("up"),
+  () => movePlayer(TILE_DEGREES, 0),
 );
 document.getElementById("moveDown")?.addEventListener(
   "click",
-  () => movePlayer("down"),
+  () => movePlayer(-TILE_DEGREES, 0),
 );
 document.getElementById("moveLeft")?.addEventListener(
   "click",
-  () => movePlayer("left"),
+  () => movePlayer(0, -TILE_DEGREES),
 );
 document.getElementById("moveRight")?.addEventListener(
   "click",
-  () => movePlayer("right"),
+  () => movePlayer(0, TILE_DEGREES),
 );
 
 // Initial Cache Spawn
 regenerateCaches();
+loadGameState();
 
 // Button interaction for alert example
 document.getElementById("exampleButton")?.addEventListener("click", () => {
@@ -296,11 +450,11 @@ console.log(cacheCells);
 document.addEventListener("keydown", (event) => {
   if (event.key === "s") {
     console.log("Saving cache state...");
-    saveCacheState();
+    saveGameState();
   } else if (event.key === "r") {
     console.log("Restoring cache state...");
-    restoreCacheState();
     regenerateCaches();
+    loadGameState();
   } else if (event.key === "p") {
     console.log("Player Info:", {
       location: playerLocation,
