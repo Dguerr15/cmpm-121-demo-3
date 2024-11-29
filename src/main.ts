@@ -305,6 +305,7 @@ function movePlayer(latOffset: number, lngOffset: number) {
   // Center map on the new location
   map.setView(playerLocation, GAMEPLAY_ZOOM_LEVEL);
   regenerateCaches();
+  saveGameState();
 }
 
 function regenerateCaches() {
@@ -408,6 +409,7 @@ function loadGameState() {
 
     // Update player marker and other UI
     playerMarker.setLatLng(playerLocation);
+    map.setView(playerLocation, GAMEPLAY_ZOOM_LEVEL);
     updateStatus();
     updatePlayerPath();
     regenerateCaches();
