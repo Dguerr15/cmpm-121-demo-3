@@ -188,21 +188,25 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
       cell.coins
         .map(
           (coin) =>
-            `<li><span class="coin" data-coordinates="${cellKey}">${coin.originI}:${coin.originJ}#${coin.serial}</span></li>`,
+            `<li><span class="coin" data-coordinates="${coin.originI}:${coin.originJ}#${coin.serial}">${coin.originI}:${coin.originJ}#${coin.serial}</span></li>`,
         )
-        .join("")
+        .join(" ")
     }</ul>
       <button id="collect-${cellKey}">Collect Coins</button>
       <button id="deposit-${cellKey}">Deposit Coins</button>
     `;
   }
 
-  // Event listener for clicking a coin
+  // Event listener for clicking a coin identifier
   popupDiv.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
     if (target.classList.contains("coin")) {
-      const [i, j] = target.dataset.coordinates!.split(":").map(Number);
-      centerOnCache(i, j);
+      const coinData = target.dataset.coordinates!;
+      const [originalI, originJAndSerial] = coinData.split(":");
+      const [originalJ, _] = originJAndSerial.split("#").map(Number);
+
+      // Call the function to center the map using the extracted coordinates
+      centerOnCache(Number(originalI), Number(originalJ));
     }
   });
 
