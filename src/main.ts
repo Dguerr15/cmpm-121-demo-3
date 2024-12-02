@@ -50,6 +50,7 @@ function saveCacheState() {
   cacheMemento.saveState(cacheCells);
 }
 
+/*
 function restoreCacheState() {
   const restoredState = cacheMemento.restoreState();
   cacheCells.clear();
@@ -59,6 +60,7 @@ function restoreCacheState() {
     }
   }
 }
+*/
 
 // Map setup
 const map = leaflet.map(document.getElementById("map")!, {
@@ -217,6 +219,7 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
       playerPoints += cell.pointValue;
       cell.coins = []; // Clear coins in cache
       cell.pointValue = 0; // Reset point value
+      console.log("Player collected coins:", playerCoins);
       updatePopupContent();
       updateStatus();
       saveGameState();
@@ -226,6 +229,7 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
   function handleDepositCoins() {
     if (playerCoins.length > 0) {
       cell.coins.push(...playerCoins); // Move all player coins to cache
+      console.log("cell contains", cell.coins);
       playerCoins = []; // Clear player coins
       updatePopupContent();
       updateStatus();
@@ -313,15 +317,14 @@ function movePlayer(latOffset: number, lngOffset: number) {
 }
 
 function regenerateCaches() {
+  console.log("Regenerating caches... from function");
   const { i: centerI, j: centerJ } = toGlobalCoords(
     playerLocation.lat,
     playerLocation.lng,
   );
 
   // Restore cache state
-  console.log("Cache state before restore:", cacheCells);
-  restoreCacheState();
-  console.log("Cache state after restore:", cacheCells);
+  //restoreCacheState();
 
   // Remove all visible rectangles but keep the data
   map.eachLayer((layer: leaflet.Layer) => {
@@ -374,14 +377,25 @@ function saveGameState() {
     cacheCells: Array.from(cacheCells.entries()).map(([key, value]) => [
       key,
       {
+        coins: [...value.coins], // Copy the coins array
+        pointValue: value.pointValue, // Retain the pointValue
+      },
+    ]),
+    /*
+    cacheCells: Array.from(cacheCells.entries()).map(([key, value]) => [
+      key,
+      {
         ...value,
         coins: value.coins.map((coin) => ({ ...coin })), // Create a deep copy of the coins array
       },
     ]),
+    */
   };
+  // Debug cache Cells
+  console.log("Cache Cells:", gameState.cacheCells);
 
   // Call saveCacheState to ensure cache state is saved
-  saveCacheState();
+  //saveCacheState();
 
   localStorage.setItem("gameState", JSON.stringify(gameState));
   console.log("Game state saved:", gameState);
@@ -397,19 +411,19 @@ function loadGameState() {
     playerPoints = gameState.playerPoints;
     playerCoins = gameState.playerCoins;
     movementHistory = gameState.movementHistory;
-    cacheCells = new Map(gameState.cacheCells);
 
-    /*// Load cacheCells and ensure coins are deep copied if necessary
-    cacheCells = new Map(
-      gameState.cacheCells.map(([key, value]: [string, any]) => [
+    // Recreate the Map correctly with proper typing
+    cacheCells = new Map<string, Cache>(
+      (gameState.cacheCells as [string, Cache][]).map(([key, value]) => [
         key,
         {
           ...value,
-          coins: value.coins ? value.coins.map((coin: any) => ({ ...coin })) : []
-        }
-      ])
+          coins: value.coins.map((coin) => ({ ...coin })), // Deep copy of coins array
+        },
+      ]),
     );
-    */
+
+    console.log("restored cacheCells", cacheCells);
 
     // Update player marker and other UI
     playerMarker.setLatLng(playerLocation);
@@ -442,10 +456,6 @@ document.getElementById("moveRight")?.addEventListener(
 document.getElementById("exampleButton")?.addEventListener("click", () => {
   alert("You clicked me!");
 });
-
-// Flyweight example for reusing objects
-console.log("Flyweight caches active:");
-console.log(cacheCells);
 
 // Debug: Log current state when a key is pressed
 document.addEventListener("keydown", (event) => {
