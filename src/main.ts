@@ -50,17 +50,21 @@ function saveCacheState() {
   cacheMemento.saveState(cacheCells);
 }
 
-/*
 function restoreCacheState() {
-  const restoredState = cacheMemento.restoreState();
-  cacheCells.clear();
-  for (const [key, restoredCache] of restoredState.entries()) {
-    if (!cacheCells.has(key)) {
-      cacheCells.set(key, restoredCache);
-    }
+  const savedState = localStorage.getItem("gameState");
+  if (savedState) {
+    const gameState = JSON.parse(savedState);
+    cacheCells = new Map<string, Cache>(
+      (gameState.cacheCells as [string, Cache][]).map(([key, value]) => [
+        key,
+        {
+          ...value,
+          coins: value.coins.map((coin) => ({ ...coin })), // Deep copy of coins array
+        },
+      ]),
+    );
   }
 }
-*/
 
 // Map setup
 const map = leaflet.map(document.getElementById("map")!, {
@@ -222,7 +226,7 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
       console.log("Player collected coins:", playerCoins);
       updatePopupContent();
       updateStatus();
-      saveGameState();
+      MementoSaveGameState();
     }
   }
 
@@ -233,7 +237,7 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
       playerCoins = []; // Clear player coins
       updatePopupContent();
       updateStatus();
-      saveGameState();
+      MementoSaveGameState();
     }
   }
 
@@ -313,7 +317,7 @@ function movePlayer(latOffset: number, lngOffset: number) {
   // Center map on the new location
   map.setView(playerLocation, GAMEPLAY_ZOOM_LEVEL);
   regenerateCaches();
-  saveGameState();
+  MementoSaveGameState();
 }
 
 function regenerateCaches() {
@@ -322,9 +326,6 @@ function regenerateCaches() {
     playerLocation.lat,
     playerLocation.lng,
   );
-
-  // Restore cache state
-  //restoreCacheState();
 
   // Remove all visible rectangles but keep the data
   map.eachLayer((layer: leaflet.Layer) => {
@@ -368,7 +369,7 @@ function regenerateCaches() {
 }
 
 // Save game state locally
-function saveGameState() {
+function MementoSaveGameState() {
   const gameState = {
     playerLocation: playerLocation,
     playerPoints: playerPoints,
@@ -381,28 +382,16 @@ function saveGameState() {
         pointValue: value.pointValue, // Retain the pointValue
       },
     ]),
-    /*
-    cacheCells: Array.from(cacheCells.entries()).map(([key, value]) => [
-      key,
-      {
-        ...value,
-        coins: value.coins.map((coin) => ({ ...coin })), // Create a deep copy of the coins array
-      },
-    ]),
-    */
   };
-  // Debug cache Cells
-  console.log("Cache Cells:", gameState.cacheCells);
 
   // Call saveCacheState to ensure cache state is saved
-  //saveCacheState();
+  saveCacheState();
 
   localStorage.setItem("gameState", JSON.stringify(gameState));
-  console.log("Game state saved:", gameState);
 }
 
 // Load game state from localStorage
-function loadGameState() {
+function mementoLoadGameState() {
   const savedState = localStorage.getItem("gameState");
   if (savedState) {
     const gameState = JSON.parse(savedState);
@@ -411,19 +400,7 @@ function loadGameState() {
     playerPoints = gameState.playerPoints;
     playerCoins = gameState.playerCoins;
     movementHistory = gameState.movementHistory;
-
-    // Recreate the Map correctly with proper typing
-    cacheCells = new Map<string, Cache>(
-      (gameState.cacheCells as [string, Cache][]).map(([key, value]) => [
-        key,
-        {
-          ...value,
-          coins: value.coins.map((coin) => ({ ...coin })), // Deep copy of coins array
-        },
-      ]),
-    );
-
-    console.log("restored cacheCells", cacheCells);
+    restoreCacheState();
 
     // Update player marker and other UI
     playerMarker.setLatLng(playerLocation);
@@ -457,32 +434,6 @@ document.getElementById("exampleButton")?.addEventListener("click", () => {
   alert("You clicked me!");
 });
 
-// Debug: Log current state when a key is pressed
-document.addEventListener("keydown", (event) => {
-  if (event.key === "s") {
-    console.log("Saving cache state...");
-    saveGameState();
-  } else if (event.key === "r") {
-    console.log("Restoring cache state...");
-    regenerateCaches();
-    loadGameState();
-  } else if (event.key === "p") {
-    console.log("Player Info:", {
-      location: playerLocation,
-      points: playerPoints,
-      coins: playerCoins,
-    });
-  }
-});
-
-// Map interaction example for debugging
-map.on("click", (event: leaflet.MouseEvent) => {
-  const { lat, lng } = event.latlng;
-  const { i, j } = toGlobalCoords(lat, lng);
-  const cellKey = `${i}:${j}`;
-  console.log(`Map clicked at ${cellKey}`);
-});
-
 // Ensruing correct build on initiliazation
 globalThis.onload = () => {
   initiliazeMap();
@@ -491,7 +442,7 @@ globalThis.onload = () => {
 function initiliazeMap() {
   const savedState = localStorage.getItem("gameState");
   if (savedState) {
-    loadGameState();
+    mementoLoadGameState();
   } else {
     regenerateCaches();
   }
