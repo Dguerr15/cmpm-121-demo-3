@@ -278,10 +278,17 @@ function spawnCache(globalI: number, globalJ: number) {
     cacheCells.set(cellKey, { coins, pointValue });
   }
 
-  // Cache exists; fetch it
+  // Pass rendering responsibilities to a helper method
   const cell = cacheCells.get(cellKey)!;
+  renderCache(cell, globalI, globalJ, cellKey);
+}
 
-  // Convert global coordinates back to latitude/longitude
+function renderCache(
+  cell: Cache,
+  globalI: number,
+  globalJ: number,
+  cellKey: string,
+) {
   const cellLat = globalI * TILE_DEGREES;
   const cellLng = globalJ * TILE_DEGREES;
   const bounds = leaflet.latLngBounds([
