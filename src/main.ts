@@ -245,6 +245,7 @@ function addPopupEventListeners(
     }
   });
 }
+
 function collectCoins(cell: Cache, updatePopupContent: () => void) {
   if (cell.coins.length > 0) {
     playerCoins.push(...cell.coins); // Move all coins to player
@@ -253,21 +254,24 @@ function collectCoins(cell: Cache, updatePopupContent: () => void) {
     cell.pointValue = 0; // Reset cache points
     console.log("Player collected coins:", playerCoins);
 
-    updatePopupContent();
-    updateStatus();
-    MementoSaveGameState();
+    updateGameStateAfterCacheChanges(updatePopupContent);
   }
 }
+
 function depositCoins(cell: Cache, updatePopupContent: () => void) {
   if (playerCoins.length > 0) {
     cell.coins.push(...playerCoins); // Move all coins to cache
     playerCoins = []; // Clear player coins
     console.log("Cell contains:", cell.coins);
 
-    updatePopupContent();
-    updateStatus();
-    MementoSaveGameState();
+    updateGameStateAfterCacheChanges(updatePopupContent);
   }
+}
+
+function updateGameStateAfterCacheChanges(updatePopupContent: () => void) {
+  updatePopupContent();
+  updateStatus();
+  MementoSaveGameState();
 }
 
 function parseCoinCoordinates(coinData: string) {
