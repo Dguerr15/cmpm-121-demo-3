@@ -187,69 +187,93 @@ function createCachePopup(cell: Cache, cellKey: string): HTMLDivElement {
   const popupDiv = document.createElement("div");
 
   function updatePopupContent() {
-    popupDiv.innerHTML = `
-      <div>Cache at "${cellKey}"</div>
-      <div>Points: <span>${cell.pointValue}</span>, Coins: <span>${cell.coins.length}</span></div>
-      <ul>${
-      cell.coins
-        .map(
-          (coin) =>
-            `<li><span class="coin" data-coordinates="${coin.originI}:${coin.originJ}#${coin.serial}">${coin.originI}:${coin.originJ}#${coin.serial}</span></li>`,
-        )
-        .join(" ")
-    }</ul>
-      <button id="collect-${cellKey}">Collect Coins</button>
-      <button id="deposit-${cellKey}">Deposit Coins</button>
-    `;
+    popupDiv.innerHTML = buildPopupHTML(cell, cellKey);
   }
-
-  // Event listener for clicking a coin identifier
-  popupDiv.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement;
-    if (target.classList.contains("coin")) {
-      const coinData = target.dataset.coordinates!;
-      const [originalI, originJAndSerial] = coinData.split(":");
-      const [originalJ, _] = originJAndSerial.split("#").map(Number);
-
-      // Call the function to center the map using the extracted coordinates
-      centerOnCache(Number(originalI), Number(originalJ));
-    }
-  });
-
-  // Handle coin collection and deposit actions
-  function handleCollectCoins() {
-    if (cell.coins.length > 0) {
-      playerCoins.push(...cell.coins); // Move all coins to player
-      playerPoints += cell.pointValue;
-      cell.coins = []; // Clear coins in cache
-      cell.pointValue = 0; // Reset point value
-      console.log("Player collected coins:", playerCoins);
-      updatePopupContent();
-      updateStatus();
-      MementoSaveGameState();
-    }
-  }
-
-  function handleDepositCoins() {
-    if (playerCoins.length > 0) {
-      cell.coins.push(...playerCoins); // Move all player coins to cache
-      console.log("cell contains", cell.coins);
-      playerCoins = []; // Clear player coins
-      updatePopupContent();
-      updateStatus();
-      MementoSaveGameState();
-    }
-  }
-
   // Attach event listeners
-  popupDiv.addEventListener("click", (event) => {
-    const targetId = (event.target as HTMLElement).id;
-    if (targetId === `collect-${cellKey}`) handleCollectCoins();
-    if (targetId === `deposit-${cellKey}`) handleDepositCoins();
-  });
+  addPopupEventListeners(popupDiv, cell, cellKey, updatePopupContent);
 
   updatePopupContent();
   return popupDiv;
+}
+
+function buildPopupHTML(cell: Cache, cellKey: string): string {
+  return `
+    <div>Cache at "${cellKey}"</div>
+    <div>
+      Points: <span>${cell.pointValue}</span>, 
+      Coins: <span>${cell.coins.length}</span>
+    </div>
+    <ul>
+      ${
+    cell.coins
+      .map(
+        (coin) =>
+          `<li><span class="coin" data-coordinates="${coin.originI}:${coin.originJ}#${coin.serial}">
+              ${coin.originI}:${coin.originJ}#${coin.serial}
+            </span></li>`,
+      )
+      .join("")
+  }
+    </ul>
+    <button id="collect-${cellKey}">Collect Coins</button>
+    <button id="deposit-${cellKey}">Deposit Coins</button>
+  `;
+}
+
+function addPopupEventListeners(
+  popupDiv: HTMLDivElement,
+  cell: Cache,
+  cellKey: string,
+  updatePopupContent: () => void,
+) {
+  popupDiv.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    const targetId = target.id;
+
+    if (target.classList.contains("coin")) {
+      const coinData = target.dataset.coordinates!;
+      const [originI, originJ] = parseCoinCoordinates(coinData);
+      centerOnCache(originI, originJ);
+    }
+
+    if (targetId === `collect-${cellKey}`) {
+      collectCoins(cell, updatePopupContent);
+    }
+
+    if (targetId === `deposit-${cellKey}`) {
+      depositCoins(cell, updatePopupContent);
+    }
+  });
+}
+function collectCoins(cell: Cache, updatePopupContent: () => void) {
+  if (cell.coins.length > 0) {
+    playerCoins.push(...cell.coins); // Move all coins to player
+    playerPoints += cell.pointValue;
+    cell.coins = []; // Clear cache coins
+    cell.pointValue = 0; // Reset cache points
+    console.log("Player collected coins:", playerCoins);
+
+    updatePopupContent();
+    updateStatus();
+    MementoSaveGameState();
+  }
+}
+function depositCoins(cell: Cache, updatePopupContent: () => void) {
+  if (playerCoins.length > 0) {
+    cell.coins.push(...playerCoins); // Move all coins to cache
+    playerCoins = []; // Clear player coins
+    console.log("Cell contains:", cell.coins);
+
+    updatePopupContent();
+    updateStatus();
+    MementoSaveGameState();
+  }
+}
+
+function parseCoinCoordinates(coinData: string) {
+  const [originI, rest] = coinData.split(":");
+  const [originJ] = rest.split("#");
+  return [Number(originI), Number(originJ)];
 }
 
 function centerOnCache(i: number, j: number) {
