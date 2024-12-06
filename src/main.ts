@@ -320,13 +320,7 @@ function movePlayer(latOffset: number, lngOffset: number) {
   MementoSaveGameState();
 }
 
-function regenerateCaches() {
-  console.log("Regenerating caches... from function");
-  const { i: centerI, j: centerJ } = toGlobalCoords(
-    playerLocation.lat,
-    playerLocation.lng,
-  );
-
+function renderCaches(centerI: number, centerJ: number) {
   // Remove all visible rectangles but keep the data
   map.eachLayer((layer: leaflet.Layer) => {
     if (layer instanceof leaflet.Rectangle) {
@@ -334,7 +328,7 @@ function regenerateCaches() {
     }
   });
 
-  // Generate caches around the player's current position, based on the original seed (globalI, globalJ)
+  // Generate or display caches around the player's current position
   for (
     let latOffset = -NEIGHBORHOOD_SIZE;
     latOffset <= NEIGHBORHOOD_SIZE;
@@ -349,23 +343,32 @@ function regenerateCaches() {
       const globalJ = centerJ + lngOffset;
       const cellKey = `${globalI}:${globalJ}`;
 
-      // Only create or display the cache if it hasn't been generated yet for this position
+      // Only spawn or render the cache if it hasn't been generated yet
       if (!cacheCells.has(cellKey)) {
-        // Spawn the cache only once based on the seed
         if (
           luck([globalI, globalJ, "seed"].toString()) < CACHE_SPAWN_PROBABILITY
         ) {
-          spawnCache(globalI, globalJ);
+          spawnCache(globalI, globalJ); // Spawning cache
         }
       } else {
-        // Add the existing cache's visual representation if it already exists
-        spawnCache(globalI, globalJ);
+        spawnCache(globalI, globalJ); // Rendering already existing cache
       }
     }
   }
 
-  // Save cache state
+  // Save the updated cache state
   saveCacheState();
+}
+
+function regenerateCaches() {
+  console.log("Regenerating caches...");
+  const { i: centerI, j: centerJ } = toGlobalCoords(
+    playerLocation.lat,
+    playerLocation.lng,
+  );
+
+  // Render caches using the extracted coordinates
+  renderCaches(centerI, centerJ);
 }
 
 // Save game state locally
